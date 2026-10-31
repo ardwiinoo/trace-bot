@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -70,6 +72,7 @@ func postJSON(ctx context.Context, name, url string, headers map[string]string, 
 			if wait == 0 {
 				wait = time.Duration(attempt) * 2 * time.Second
 			}
+			slog.Warn("llm retry", "provider", name, "attempt", attempt, "wait", wait, "last_error", lastErr)
 			select {
 			case <-time.After(wait):
 			case <-ctx.Done():
@@ -92,6 +95,10 @@ func postJSON(ctx context.Context, name, url string, headers map[string]string, 
 		}
 		data, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests && isDailyQuota(data) {
+			// Waiting a minute cannot fix a daily quota, so fail fast with a clear message.
+			return fmt.Errorf("%s: kuota harian free tier habis (coba lagi besok, aktifkan billing, ganti GEMINI_MODEL, atau set LLM_PROVIDER=claude)", name)
+		}
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("%s: HTTP %d: %s", name, resp.StatusCode, snippet(data))
 			wait = retryAfter(resp, data)
@@ -105,7 +112,13 @@ func postJSON(ctx context.Context, name, url string, headers map[string]string, 
 	return lastErr
 }
 
-var retryDelayRe = regexp.MustCompile(`"retryDelay":\s*"(\d+(?:\.\d+)?)s"`)
+// isDailyQuota reports whether a 429 body is about a per-day quota.
+func isDailyQuota(body []byte) bool {
+	s := strings.ToLower(string(body))
+	return strings.Contains(s, "per day") || strings.Contains(s, "perday")
+}
+
+var retryDelayRe =regexp.MustCompile(`"retryDelay":\s*"(\d+(?:\.\d+)?)s"`)
 
 // retryAfter reads how long the provider asks us to back off (Retry-After
 // header, or Gemini's retryDelay in the error body), capped at 60s. Free-tier
