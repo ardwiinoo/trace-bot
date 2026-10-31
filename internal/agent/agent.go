@@ -72,6 +72,10 @@ func (a *Agent) systemPrompt() string {
 
 Current time: %s (%s, weekday %s). Always interpret times the user mentions ("jam 2 pagi", "kemarin", "tadi malam") in this timezone, and pass absolute times like '%s' or relative ones like 'now-6h' to the tools.
 
+Environment notes (from the current deployment; verify with the list_* tools only if a query unexpectedly returns nothing):
+- Loki: every log has the label service_name (currently "sample-be"). Per-log structured metadata can be filtered in the pipeline: detected_level (debug/info/warn/error), severity_text, path (request path), trace_id. Select errors with | detected_level="error", never with a text match like |= "error". Count with count_over_time and group with sum by (path) (...).
+- Prometheus: HTTP server metrics come from OpenTelemetry: http_server_request_duration_seconds_{count,sum,bucket}; use describe_metric to see its labels (route, status code, method). Request rate: sum(rate(http_server_request_duration_seconds_count[5m])); latency percentile: histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m]))).
+
 Rules:
 - Answer using tool results only. Never invent numbers, log lines or times. If a query returns nothing, say so plainly and, if sensible, check the label/metric names before concluding there is no data.
 - If you are not sure which services, labels or metric names exist, call list_log_labels / list_metrics / describe_metric first instead of guessing.

@@ -18,8 +18,10 @@ func (e *env) queryLogsTool() Tool {
 		Def: llm.ToolDef{
 			Name: "query_logs",
 			Description: "Run a LogQL query against Loki over a time range. Use a log query like " +
-				`{service_name="sample-be"} |= "error"` + " to see matching log lines (newest first), or a metric query like " +
-				`sum(count_over_time({service_name="sample-be"} |= "error" [5m]))` + " to get counts over time. " +
+				`{service_name="sample-be"} | detected_level="error"` + " to see matching log lines (newest first), or a metric query like " +
+				`sum by (path) (count_over_time({service_name="sample-be"} | detected_level="error" [5m]))` + " to get counts over time. " +
+				"Filter severity with | detected_level=\"error\" (values: debug, info, warn, error), NOT with a text match like |= \"error\", " +
+				"which misses error lines whose message lacks that word. " +
 				"Prefer metric queries to count or find when something happened; use log queries to read examples.",
 			Parameters: obj(map[string]any{
 				"query": str("LogQL expression"),
@@ -97,9 +99,9 @@ func (e *env) formatStreams(raw json.RawMessage, limit int) (string, error) {
 		return "", err
 	}
 	type line struct {
-		t    time.Time
-		svc  string
-		text string
+		t     time.Time
+		attrs string
+		text  string
 	}
 	var lines []line
 	for _, s := range streams {
@@ -112,7 +114,7 @@ func (e *env) formatStreams(raw json.RawMessage, limit int) (string, error) {
 			if len(text) > 300 {
 				text = text[:300] + "..."
 			}
-			lines = append(lines, line{t: time.Unix(0, ns), svc: s.Stream["service_name"], text: text})
+			lines = append(lines, line{t: time.Unix(0, ns), attrs: lineAttrs(s.Stream), text: text})
 		}
 	}
 	if len(lines) == 0 {
@@ -129,9 +131,20 @@ func (e *env) formatStreams(raw json.RawMessage, limit int) (string, error) {
 	}
 	b.WriteString("\n")
 	for _, l := range lines {
-		fmt.Fprintf(&b, "%s [%s] %s\n", e.fmtTime(l.t), l.svc, l.text)
+		fmt.Fprintf(&b, "%s %s | %s\n", e.fmtTime(l.t), l.attrs, l.text)
 	}
 	return b.String(), nil
+}
+
+// lineAttrs renders the stream labels / structured metadata worth showing per line.
+func lineAttrs(stream map[string]string) string {
+	var parts []string
+	for _, k := range []string{"service_name", "detected_level", "path", "trace_id"} {
+		if v := stream[k]; v != "" {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func (e *env) listLogLabelsTool() Tool {
