@@ -39,7 +39,7 @@ func Load() (*Config, error) {
 	c := &Config{
 		Provider:        strings.ToLower(env("LLM_PROVIDER", "gemini")),
 		GeminiKey:       env("GEMINI_API_KEY", ""),
-		GeminiModel:     env("GEMINI_MODEL", "gemini-2.5-flash"),
+		GeminiModel:     env("GEMINI_MODEL", "gemini-3.5-flash-lite"),
 		AnthropicKey:    env("ANTHROPIC_API_KEY", ""),
 		AnthropicModel:  env("ANTHROPIC_MODEL", "claude-sonnet-5-5"),
 		TelegramToken:   env("TELEGRAM_BOT_TOKEN", ""),
