@@ -1,0 +1,32 @@
+services:
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3000:3000"   # Grafana (admin/admin)
+      - "4318:4318"   # OTLP http
+      - "9090:9090"   # Prometheus
+      - "3100:3100"   # Loki
+      - "3200:3200"   # Tempo
+    volumes:
+      - lgtm-data:/data
+
+  sample-be:
+    build:
+      context: .
+      args: { CMD: sample-be }
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4318
+    ports:
+      - "8080:8080"
+    depends_on: [lgtm]
+
+  traffic-gen:
+    build:
+      context: .
+      args: { CMD: traffic-gen }
+    environment:
+      TARGET_URL: http://sample-be:8080
+    depends_on: [sample-be]
+
+volumes:
+  lgtm-data:
