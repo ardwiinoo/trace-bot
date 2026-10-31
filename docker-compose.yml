@@ -28,5 +28,19 @@ services:
       TARGET_URL: http://sample-be:8080
     depends_on: [sample-be]
 
+  bot:
+    build:
+      context: .
+      args: { CMD: bot }
+    env_file: .env
+    environment:
+      LOKI_URL: http://lgtm:3100
+      PROMETHEUS_URL: http://lgtm:9090
+      HTTP_ADDR: ":8081"
+    ports:
+      - "8081:8081"
+    depends_on: [lgtm]
+    restart: unless-stopped
+
 volumes:
   lgtm-data:
