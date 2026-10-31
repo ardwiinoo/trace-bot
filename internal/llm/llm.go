@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"time"
 )
 
@@ -62,13 +64,18 @@ func postJSON(ctx context.Context, name, url string, headers map[string]string, 
 		return err
 	}
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	wait := time.Duration(0)
+	for attempt := 0; attempt < 4; attempt++ {
 		if attempt > 0 {
+			if wait == 0 {
+				wait = time.Duration(attempt) * 2 * time.Second
+			}
 			select {
-			case <-time.After(time.Duration(attempt) * 2 * time.Second):
+			case <-time.After(wait):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+			wait = 0
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 		if err != nil {
@@ -87,6 +94,7 @@ func postJSON(ctx context.Context, name, url string, headers map[string]string, 
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("%s: HTTP %d: %s", name, resp.StatusCode, snippet(data))
+			wait = retryAfter(resp, data)
 			continue
 		}
 		if resp.StatusCode/100 != 2 {
@@ -95,6 +103,25 @@ func postJSON(ctx context.Context, name, url string, headers map[string]string, 
 		return json.Unmarshal(data, out)
 	}
 	return lastErr
+}
+
+var retryDelayRe = regexp.MustCompile(`"retryDelay":\s*"(\d+(?:\.\d+)?)s"`)
+
+// retryAfter reads how long the provider asks us to back off (Retry-After
+// header, or Gemini's retryDelay in the error body), capped at 60s. Free-tier
+// per-minute quotas are routine, so waiting is better than failing.
+func retryAfter(resp *http.Response, body []byte) time.Duration {
+	var d time.Duration
+	if n, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil {
+		d = time.Duration(n) * time.Second
+	} else if m := retryDelayRe.FindSubmatch(body); m != nil {
+		f, _ := strconv.ParseFloat(string(m[1]), 64)
+		d = time.Duration(f * float64(time.Second))
+	}
+	if d > 0 {
+		d += time.Second
+	}
+	return min(d, 60*time.Second)
 }
 
 func snippet(b []byte) string {
